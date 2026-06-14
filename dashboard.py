@@ -32,7 +32,7 @@ def fetch_patreon_data():
 
     while True:
         params = {
-            "fields[member]": "full_name,patron_status,currently_entitled_amount_cents,lifetime_support_cents,last_charge_status,last_charge_date,pledge_relationship_start,will_pay_amount_cents,is_follower",
+            "fields[member]": "full_name,patron_status,currently_entitled_amount_cents,lifetime_support_cents,last_charge_status,last_charge_date,pledge_relationship_start,will_pay_amount_cents,is_follower,pledge_cadence",
             "include": "currently_entitled_tiers",
             "fields[tier]": "title,amount_cents",
             "page[count]": 1000
@@ -178,7 +178,14 @@ declined = [m for m in members if m["attributes"].get("patron_status") == "decli
 former = [m for m in members if m["attributes"].get("patron_status") == "former_patron"]
 followers = [m for m in members if m["attributes"].get("is_follower")]
  
-monthly_revenue = sum(m["attributes"].get("currently_entitled_amount_cents", 0) for m in active) / 100
+def monthly_amount(m):
+    amount = m["attributes"].get("currently_entitled_amount_cents", 0)
+    cadence = m["attributes"].get("pledge_cadence", 1)
+    if cadence == 12:
+        return amount / 12
+    return amount
+
+monthly_revenue = sum(monthly_amount(m) for m in active) / 100
 lifetime_revenue = sum(m["attributes"].get("lifetime_support_cents", 0) for m in members) / 100
 next_month_rev = sum(m["attributes"].get("will_pay_amount_cents", 0) for m in active) / 100
  
