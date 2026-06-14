@@ -25,16 +25,36 @@ def fetch_patreon_data():
     token = os.getenv("PATREON_ACCESS_TOKEN")
     campaign_id = "3563344"
     headers = {"Authorization": f"Bearer {token}"}
-    members_resp = requests.get(
-        f"https://www.patreon.com/api/oauth2/v2/campaigns/{campaign_id}/members",
-        headers=headers,
-        params={
+    
+    all_members = []
+    all_included = []
+    cursor = None
+
+    while True:
+        params = {
             "fields[member]": "full_name,patron_status,currently_entitled_amount_cents,lifetime_support_cents,last_charge_status,last_charge_date,pledge_relationship_start,will_pay_amount_cents,is_follower",
             "include": "currently_entitled_tiers",
-            "fields[tier]": "title,amount_cents"
+            "fields[tier]": "title,amount_cents",
+            "page[count]": 1000
         }
-    ).json()
-    return members_resp
+        if cursor:
+            params["page[cursor]"] = cursor
+
+        resp = requests.get(
+            f"https://www.patreon.com/api/oauth2/v2/campaigns/{campaign_id}/members",
+            headers=headers,
+            params=params
+        ).json()
+
+        all_members.extend(resp.get("data", []))
+        all_included.extend(resp.get("included", []))
+
+        next_cursor = resp.get("meta", {}).get("pagination", {}).get("cursors", {}).get("next")
+        if not next_cursor:
+            break
+        cursor = next_cursor
+
+    return {"data": all_members, "included": all_included}
  
 @st.cache_data(ttl=300)
 def fetch_youtube_data():
