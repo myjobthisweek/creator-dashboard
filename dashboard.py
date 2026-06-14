@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
  
 load_dotenv()
  
-st.set_page_config(page_title="Caelan Conrad", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="Dashboard", page_icon="🎬", layout="wide")
 st.title("Dashboard")
 st.caption("")
  
