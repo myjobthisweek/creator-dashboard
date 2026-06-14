@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import os
 import tempfile
+import math
 import pandas as pd
 import plotly.express as px
 from dotenv import load_dotenv
@@ -195,6 +196,11 @@ active = [m for m in members if m["attributes"].get("patron_status") == "active_
 declined = [m for m in members if m["attributes"].get("patron_status") == "declined_patron"]
 former = [m for m in members if m["attributes"].get("patron_status") == "former_patron"]
 followers = [m for m in members if m["attributes"].get("is_follower")]
+
+annual_active = [m for m in active if m["attributes"].get("pledge_cadence", 1) == 12]
+monthly_active = [m for m in active if m["attributes"].get("pledge_cadence", 1) != 12]
+avg_annual_sub = (sum(monthly_amount(m) for m in annual_active) / len(annual_active)) if annual_active else 0
+avg_monthly_sub = (sum(monthly_amount(m) for m in monthly_active) / len(monthly_active)) if monthly_active else 0
 
 def monthly_amount(m):
     amount = m["attributes"].get("currently_entitled_amount_cents", 0)
@@ -402,69 +408,73 @@ with tab2:
     st.divider()
     st.subheader("Members")
 
-    col1, col2 = st.columns(2)
-    col1.metric("Active Members", len(active))
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Paid Members", len(active))
     col2.metric("Declined Members", len(declined))
+    col3.metric("Avg Monthly Sub", f"${avg_monthly_sub:,.2f}")
+    col4.metric("Avg Annual Sub (monthly equiv.)", f"${avg_annual_sub:,.2f}")
 
     st.divider()
     st.subheader("Revenue")
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Monthly Revenue", f"${monthly_revenue:.2f}")
-    col2.metric("Lifetime Revenue", f"${lifetime_revenue:.2f}")
-    col3.metric("Projected Next Month", f"${next_month_rev:.2f}")
+    col1.metric("Monthly Revenue", f"${math.ceil(monthly_revenue):,}")
+    col2.metric("Lifetime Revenue", f"${math.ceil(lifetime_revenue):,}")
+    col3.metric("Projected Next Month", f"${math.ceil(next_month_rev):,")
 
     st.divider()
 
     if not patron_df.empty:
         st.divider()
 
-        st.subheader("New Members This Week")
-        last_7 = [today.date() - timedelta(days=i) for i in range(6, -1, -1)]
-        patron_df["DateOnly"] = patron_df["Date"].dt.date
-        weekly_subset = patron_df[patron_df["DateOnly"].isin(last_7)]
-        weekly_table = make_tier_table(weekly_subset, "DateOnly", last_7, "Date")
-        if not weekly_table.empty:
-            weekly_table["Date"] = weekly_table["Date"].apply(
-                lambda d: pd.to_datetime(str(d)).strftime("%B %-d, %Y") if d != "TOTAL" else d
-            )
-            all_cols = list(weekly_table.columns)
-            col_config = {col: st.column_config.Column(width="small") for col in all_cols}
-            highlight = ["Total Members", "Total Revenue ($)"]
-            def _style_weekly(col):
-                if col.name in highlight:
-                    return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
-                return ["text-align: center"] * len(col)
-            styled = weekly_table.style.apply(_style_weekly, axis=0).format({"Total Revenue ($)": "${:,.2f}"})
-            st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
-        else:
-            st.info("No new members in the last 7 days.")
+        highlight = ["Total Members", "Total Revenue ($)"]
 
-        st.divider()
+        col_weekly, col_monthly = st.columns(2)
 
-        st.subheader("New Members by Month (This Year)")
-        patron_df["Month"] = patron_df["Date"].dt.to_period("M")
-        months_this_year = [
-            pd.Period(f"{this_year}-{m:02d}", freq="M")
-            for m in range(1, this_month + 1)
-        ]
-        patron_df_year = patron_df[patron_df["Date"].dt.year == this_year]
-        monthly_table = make_tier_table(patron_df_year, "Month", months_this_year, "Month")
-        if not monthly_table.empty:
-            monthly_table["Month"] = monthly_table["Month"].apply(
-                lambda p: pd.Period(str(p), freq="M").strftime("%B %Y") if p != "TOTAL" else p
-            )
-            all_cols = list(monthly_table.columns)
-            col_config = {col: st.column_config.Column(width="small") for col in all_cols}
-            highlight = ["Total Members", "Total Revenue ($)"]
-            def _style_monthly(col):
-                if col.name in highlight:
-                    return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
-                return ["text-align: center"] * len(col)
-            styled = monthly_table.style.apply(_style_monthly, axis=0).format({"Total Revenue ($)": "${:,.2f}"})
-            st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
-        else:
-            st.info("No member data for this year yet.")
+        with col_weekly:
+            st.subheader("New Members This Week")
+            last_7 = [today.date() - timedelta(days=i) for i in range(6, -1, -1)]
+            patron_df["DateOnly"] = patron_df["Date"].dt.date
+            weekly_subset = patron_df[patron_df["DateOnly"].isin(last_7)]
+            weekly_table = make_tier_table(weekly_subset, "DateOnly", last_7, "Date")
+            if not weekly_table.empty:
+                weekly_table["Date"] = weekly_table["Date"].apply(
+                    lambda d: pd.to_datetime(str(d)).strftime("%B %-d, %Y") if d != "TOTAL" else d
+                )
+                all_cols = list(weekly_table.columns)
+                col_config = {col: st.column_config.Column(width="small") for col in all_cols}
+                def _style_weekly(col):
+                    if col.name in highlight:
+                        return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
+                    return ["text-align: center"] * len(col)
+                styled = weekly_table.style.apply(_style_weekly, axis=0).format({"Total Revenue ($)": "${:,.2f}"})
+                st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
+            else:
+                st.info("No new members in the last 7 days.")
+
+        with col_monthly:
+            st.subheader("New Members by Month (This Year)")
+            patron_df["Month"] = patron_df["Date"].dt.to_period("M")
+            months_this_year = [
+                pd.Period(f"{this_year}-{m:02d}", freq="M")
+                for m in range(1, this_month + 1)
+            ]
+            patron_df_year = patron_df[patron_df["Date"].dt.year == this_year]
+            monthly_table = make_tier_table(patron_df_year, "Month", months_this_year, "Month")
+            if not monthly_table.empty:
+                monthly_table["Month"] = monthly_table["Month"].apply(
+                    lambda p: pd.Period(str(p), freq="M").strftime("%B %Y") if p != "TOTAL" else p
+                )
+                all_cols = list(monthly_table.columns)
+                col_config = {col: st.column_config.Column(width="small") for col in all_cols}
+                def _style_monthly(col):
+                    if col.name in highlight:
+                        return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
+                    return ["text-align: center"] * len(col)
+                styled = monthly_table.style.apply(_style_monthly, axis=0).format({"Total Revenue ($)": "${:,.2f}"})
+                st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
+            else:
+                st.info("No member data for this year yet.")
 
         st.divider()
 
