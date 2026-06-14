@@ -270,6 +270,29 @@ cancel_this_month = cancellations_for(this_year, this_month)
 cancel_last_month = cancellations_for(last_month_year, last_month)
 cancel_delta = cancel_this_month - cancel_last_month
 
+net_growth_this_month = signups_this_month - cancel_this_month
+
+# Average member tenure in months (active members only)
+tenure_months_list = []
+for m in active:
+    start = m["attributes"].get("pledge_relationship_start")
+    if start:
+        start_dt = pd.to_datetime(start[:10])
+        months = (today.year - start_dt.year) * 12 + (today.month - start_dt.month)
+        tenure_months_list.append(months)
+avg_tenure_months = round(sum(tenure_months_list) / len(tenure_months_list)) if tenure_months_list else 0
+
+# Revenue from new subscribers
+new_rev_this_month = 0
+new_rev_this_week = 0
+if not patron_df.empty:
+    active_df = patron_df[patron_df["Status"] == "active_patron"]
+    month_new = active_df[(active_df["Date"].dt.year == this_year) & (active_df["Date"].dt.month == this_month)]
+    new_rev_this_month = month_new["Amount"].sum()
+    last_7_dates = set(today.date() - timedelta(days=i) for i in range(7))
+    week_new = active_df[active_df["Date"].dt.date.isin(last_7_dates)]
+    new_rev_this_week = week_new["Amount"].sum()
+
 # ============================
 # PROCESS YOUTUBE
 # ============================
@@ -397,6 +420,15 @@ with tab1:
 # ============================
 
 with tab2:
+    st.subheader("Members")
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Paid Members", len(active))
+    col2.metric("Avg Monthly Sub", f"${avg_monthly_sub:,.2f}")
+    col3.metric("Net Growth This Month", f"{net_growth_this_month:+}")
+    col4.metric("Avg Member Tenure", f"{avg_tenure_months} months")
+
+    st.divider()
     st.subheader("Sign Ups")
 
     col1, col2, col3, col4 = st.columns(4)
@@ -406,32 +438,20 @@ with tab2:
     col4.metric("Cancellations Last Month", cancel_last_month)
 
     st.divider()
-    st.subheader("Members")
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Paid Members", len(active))
-    col2.metric("Declined Members", len(declined))
-    col3.metric("Avg Monthly Sub", f"${avg_monthly_sub:,.2f}")
-    col4.metric("Avg Annual Sub (monthly equiv.)", f"${avg_annual_sub:,.2f}")
-
-    st.divider()
     st.subheader("Revenue")
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Monthly Revenue", f"${math.ceil(monthly_revenue):,}")
-    col2.metric("Lifetime Revenue", f"${math.ceil(lifetime_revenue):,}")
-    col3.metric("Projected Next Month", f"${math.ceil(next_month_rev):,}")
-
-    st.divider()
+    col2.metric("New Sub Revenue This Month", f"${math.ceil(new_rev_this_month):,}")
+    col3.metric("New Sub Revenue This Week", f"${math.ceil(new_rev_this_week):,}")
 
     if not patron_df.empty:
         st.divider()
 
         highlight = ["Total Members", "Total Revenue ($)"]
+        col_tables, _ = st.columns([1, 1])
 
-        col_weekly, col_monthly = st.columns(2)
-
-        with col_weekly:
+        with col_tables:
             st.subheader("New Members This Week")
             last_7 = [today.date() - timedelta(days=i) for i in range(6, -1, -1)]
             patron_df["DateOnly"] = patron_df["Date"].dt.date
@@ -452,7 +472,6 @@ with tab2:
             else:
                 st.info("No new members in the last 7 days.")
 
-        with col_monthly:
             st.subheader("New Members by Month (This Year)")
             patron_df["Month"] = patron_df["Date"].dt.to_period("M")
             months_this_year = [
