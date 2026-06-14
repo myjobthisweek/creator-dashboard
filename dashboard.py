@@ -10,9 +10,9 @@ from datetime import datetime, timedelta
  
 load_dotenv()
  
-st.set_page_config(page_title="Dashboard", page_icon="🎬", layout="wide")
-st.title("Dashboard")
-st.caption("")
+st.set_page_config(page_title="Caelan Conrad", page_icon="🎬", layout="wide")
+st.title("Caelan Conrad")
+st.caption("Bash Back Inc.")
  
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🎁 Patreon", "📺 YouTube"])
  
@@ -23,38 +23,18 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🎁 Patreon", "📺 YouTube"])
 @st.cache_data(ttl=300)
 def fetch_patreon_data():
     token = os.getenv("PATREON_ACCESS_TOKEN")
-    campaign_id = "3563344"
+    campaign_id = "16231121"
     headers = {"Authorization": f"Bearer {token}"}
-    
-    all_members = []
-    all_included = []
-    cursor = None
-
-    while True:
-        params = {
-            "fields[member]": "full_name,patron_status,currently_entitled_amount_cents,lifetime_support_cents,campaign_lifetime_support_cents,last_charge_status,last_charge_date,pledge_relationship_start,will_pay_amount_cents,is_follower,pledge_cadence",
+    members_resp = requests.get(
+        f"https://www.patreon.com/api/oauth2/v2/campaigns/{campaign_id}/members",
+        headers=headers,
+        params={
+            "fields[member]": "full_name,patron_status,currently_entitled_amount_cents,lifetime_support_cents,last_charge_status,last_charge_date,pledge_relationship_start,will_pay_amount_cents,is_follower",
             "include": "currently_entitled_tiers",
-            "fields[tier]": "title,amount_cents",
-            "page[count]": 1000
+            "fields[tier]": "title,amount_cents"
         }
-        if cursor:
-            params["page[cursor]"] = cursor
-
-        resp = requests.get(
-            f"https://www.patreon.com/api/oauth2/v2/campaigns/{campaign_id}/members",
-            headers=headers,
-            params=params
-        ).json()
-
-        all_members.extend(resp.get("data", []))
-        all_included.extend(resp.get("included", []))
-
-        next_cursor = resp.get("meta", {}).get("pagination", {}).get("cursors", {}).get("next")
-        if not next_cursor:
-            break
-        cursor = next_cursor
-
-    return {"data": all_members, "included": all_included}
+    ).json()
+    return members_resp
  
 @st.cache_data(ttl=300)
 def fetch_youtube_data():
@@ -91,12 +71,7 @@ def fetch_youtube_data():
 @st.cache_data(ttl=300)
 def fetch_youtube_analytics():
     try:
-        import json, tempfile
-        creds_data = st.secrets["GOOGLE_CREDS"]
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            f.write(creds_data)
-            tmp_path = f.name
-        creds = Credentials.from_authorized_user_file(tmp_path)
+        creds = Credentials.from_authorized_user_file("google_creds.json")
         youtube_analytics = build("youtubeAnalytics", "v2", credentials=creds)
         today = datetime.today()
         # Go back 13 months for 12-month averages
@@ -122,12 +97,7 @@ def fetch_youtube_analytics():
 @st.cache_data(ttl=300)
 def fetch_adsense_monthly():
     try:
-        import json, tempfile
-        creds_data = st.secrets["GOOGLE_CREDS"]
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            f.write(creds_data)
-            tmp_path = f.name
-        creds = Credentials.from_authorized_user_file(tmp_path)
+        creds = Credentials.from_authorized_user_file("google_creds.json")
         service = build("adsense", "v2", credentials=creds)
         accounts = service.accounts().list().execute()
         if not accounts.get("accounts"):
@@ -178,15 +148,8 @@ declined = [m for m in members if m["attributes"].get("patron_status") == "decli
 former = [m for m in members if m["attributes"].get("patron_status") == "former_patron"]
 followers = [m for m in members if m["attributes"].get("is_follower")]
  
-def monthly_amount(m):
-    amount = m["attributes"].get("currently_entitled_amount_cents", 0)
-    cadence = m["attributes"].get("pledge_cadence", 1)
-    if cadence == 12:
-        return amount / 12
-    return amount
-
-monthly_revenue = sum(monthly_amount(m) for m in active) / 100
-lifetime_revenue = sum(m["attributes"].get("campaign_lifetime_support_cents", 0) for m in members) / 100
+monthly_revenue = sum(m["attributes"].get("currently_entitled_amount_cents", 0) for m in active) / 100
+lifetime_revenue = sum(m["attributes"].get("lifetime_support_cents", 0) for m in members) / 100
 next_month_rev = sum(m["attributes"].get("will_pay_amount_cents", 0) for m in active) / 100
  
 today = datetime.today()
@@ -217,7 +180,7 @@ for m in members:
         patron_records.append({
             "Date": pd.to_datetime(start[:10]),
             "Tier": m.get("tier", "No Tier"),
-            "Amount": m["attributes"].get("currently_entitled_amount_cents", 0) / 100,
+            "Amount": monthly_amount(m),
             "Status": m["attributes"].get("patron_status")
         })
 patron_df = pd.DataFrame(patron_records) if patron_records else pd.DataFrame()
@@ -428,19 +391,29 @@ with tab2:
     if not patron_df.empty:
         st.divider()
  
-        st.subheader("New Members — Last 7 Days by Tier")
+        st.subheader("New Members This Week")
         last_7 = [today.date() - timedelta(days=i) for i in range(6, -1, -1)]
         patron_df["DateOnly"] = patron_df["Date"].dt.date
         weekly_subset = patron_df[patron_df["DateOnly"].isin(last_7)]
         weekly_table = make_tier_table(weekly_subset, "DateOnly", last_7, "Date")
         if not weekly_table.empty:
-            st.dataframe(weekly_table, use_container_width=True, hide_index=True)
+            weekly_table["Date"] = weekly_table["Date"].apply(
+                lambda d: pd.to_datetime(str(d)).strftime("%-d %B %Y") if d != "TOTAL" else d
+            )
+            all_cols = list(weekly_table.columns)
+            col_config = {col: st.column_config.Column(width="medium") for col in all_cols}
+            st.dataframe(
+                weekly_table.style.set_properties(**{"text-align": "center"}),
+                use_container_width=True,
+                hide_index=True,
+                column_config=col_config
+            )
         else:
             st.info("No new members in the last 7 days.")
  
         st.divider()
  
-        st.subheader("New Members — Monthly Breakdown (This Year)")
+        st.subheader("New Members by Month (This Year)")
         patron_df["Month"] = patron_df["Date"].dt.to_period("M")
         months_this_year = [
             pd.Period(f"{this_year}-{m:02d}", freq="M")
@@ -449,7 +422,17 @@ with tab2:
         patron_df_year = patron_df[patron_df["Date"].dt.year == this_year]
         monthly_table = make_tier_table(patron_df_year, "Month", months_this_year, "Month")
         if not monthly_table.empty:
-            st.dataframe(monthly_table, use_container_width=True, hide_index=True)
+            monthly_table["Month"] = monthly_table["Month"].apply(
+                lambda p: pd.Period(str(p), freq="M").strftime("%B %Y") if p != "TOTAL" else p
+            )
+            all_cols = list(monthly_table.columns)
+            col_config = {col: st.column_config.Column(width="medium") for col in all_cols}
+            st.dataframe(
+                monthly_table.style.set_properties(**{"text-align": "center"}),
+                use_container_width=True,
+                hide_index=True,
+                column_config=col_config
+            )
         else:
             st.info("No member data for this year yet.")
  
