@@ -8,8 +8,6 @@ from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
-import extra_streamlit_components as stx
-
 load_dotenv()
 
 st.set_page_config(page_title="Dashboard", page_icon="🎬", layout="wide")
@@ -18,17 +16,15 @@ st.set_page_config(page_title="Dashboard", page_icon="🎬", layout="wide")
 # PASSWORD PROTECTION
 # ============================
 
-cookie_manager = stx.CookieManager()
-AUTH_COOKIE = "creator_dashboard_auth"
-PASSWORD = st.secrets.get("DASHBOARD_PASSWORD", "")
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
 
-if cookie_manager.get(AUTH_COOKIE) != "authenticated":
+if not st.session_state.authenticated:
     st.markdown("## 🔒 Dashboard Login")
     pwd = st.text_input("Password", type="password")
     if st.button("Login"):
-        if pwd == PASSWORD:
-            expire = datetime.now() + timedelta(days=365)
-            cookie_manager.set(AUTH_COOKIE, "authenticated", expires_at=expire)
+        if pwd == st.secrets.get("DASHBOARD_PASSWORD", ""):
+            st.session_state.authenticated = True
             st.rerun()
         else:
             st.error("Incorrect password.")
