@@ -18,11 +18,7 @@ st.set_page_config(page_title="Dashboard", page_icon="🎬", layout="wide")
 # PASSWORD PROTECTION
 # ============================
 
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_cookie_manager()
+cookie_manager = stx.CookieManager()
 AUTH_COOKIE = "creator_dashboard_auth"
 PASSWORD = st.secrets.get("DASHBOARD_PASSWORD", "")
 
