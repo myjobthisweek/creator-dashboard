@@ -420,7 +420,7 @@ with tab2:
     col1, col2, col3 = st.columns(3)
     col1.metric("Monthly Revenue", f"${math.ceil(monthly_revenue):,}")
     col2.metric("Lifetime Revenue", f"${math.ceil(lifetime_revenue):,}")
-    col3.metric("Projected Next Month", f"${math.ceil(next_month_rev):,")
+    col3.metric("Projected Next Month", f"${math.ceil(next_month_rev):,}")
 
     st.divider()
 
