@@ -373,7 +373,7 @@ with tab1:
 # ============================
 
 with tab2:
-    st.subheader("Patreon Overview")
+    st.subheader("Sign Ups")
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Signups This Month", signups_this_month, delta=f"{signups_delta:+} vs last month", delta_color="normal")
@@ -382,17 +382,21 @@ with tab2:
     col4.metric("Cancellations Last Month", cancel_last_month)
 
     st.divider()
+    st.subheader("Members")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2 = st.columns(2)
     col1.metric("Active Members", len(active))
-    col2.metric("Monthly Revenue", f"${monthly_revenue:.2f}")
-    col3.metric("Lifetime Revenue", f"${lifetime_revenue:.2f}")
-    col4.metric("Projected Next Month", f"${next_month_rev:.2f}")
+    col2.metric("Declined Members", len(declined))
+
+    st.divider()
+    st.subheader("Revenue")
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Declined Members", len(declined))
-    col2.metric("Former Members", len(former))
-    col3.metric("Followers (non-paying)", len(followers))
+    col1.metric("Monthly Revenue", f"${monthly_revenue:.2f}")
+    col2.metric("Lifetime Revenue", f"${lifetime_revenue:.2f}")
+    col3.metric("Projected Next Month", f"${next_month_rev:.2f}")
+
+    st.divider()
 
     if not patron_df.empty:
         st.divider()
@@ -411,7 +415,7 @@ with tab2:
             highlight = ["Total Members", "Total Revenue ($)"]
             def _style_weekly(col):
                 if col.name in highlight:
-                    return ["background-color: #e8e8e8; font-weight: bold; text-align: center"] * len(col)
+                    return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
                 return ["text-align: center"] * len(col)
             styled = weekly_table.style.apply(_style_weekly, axis=0).format({"Total Revenue ($)": "${:,.2f}"})
             st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
@@ -437,7 +441,7 @@ with tab2:
             highlight = ["Total Members", "Total Revenue ($)"]
             def _style_monthly(col):
                 if col.name in highlight:
-                    return ["background-color: #e8e8e8; font-weight: bold; text-align: center"] * len(col)
+                    return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
                 return ["text-align: center"] * len(col)
             styled = monthly_table.style.apply(_style_monthly, axis=0).format({"Total Revenue ($)": "${:,.2f}"})
             st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
