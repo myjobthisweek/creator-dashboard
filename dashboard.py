@@ -493,6 +493,199 @@ with tab2:
     } for m in members])
     st.download_button("⬇️ Export Patreon Data to CSV", export_df.to_csv(index=False), "patreon_members.csv", "text/csv")
  
+    # ============================
+    # HISTORICAL EARNINGS UPLOAD
+    # ============================
+ 
+    st.divider()
+    st.subheader("📂 Historical Earnings (Patreon Export)")
+    st.caption("Upload your Patreon earnings file: Patreon dashboard → Finance → Payouts → Export. Accepts .xlsx or .csv.")
+ 
+    uploaded_file = st.file_uploader("Upload Patreon export file", type=["xlsx", "xls", "csv"], label_visibility="collapsed")
+ 
+    def find_col(df, candidates):
+        """Return the first matching column name from a list of candidates (case-insensitive)."""
+        lower_map = {c.lower().strip(): c for c in df.columns}
+        for cand in candidates:
+            if cand.lower() in lower_map:
+                return lower_map[cand.lower()]
+        return None
+ 
+    if uploaded_file is not None:
+        try:
+            ext = uploaded_file.name.split(".")[-1].lower()
+ 
+            if ext in ("xlsx", "xls"):
+                xl = pd.ExcelFile(uploaded_file)
+                sheet_names = [s.lower() for s in xl.sheet_names]
+                raw_names = xl.sheet_names
+ 
+                def get_sheet(keywords):
+                    for kw in keywords:
+                        for i, s in enumerate(sheet_names):
+                            if kw in s:
+                                return pd.read_excel(xl, sheet_name=raw_names[i])
+                    return None
+ 
+                payouts_df   = get_sheet(["payout"])
+                earnings_df  = get_sheet(["earning", "payment", "charge"])
+                members_hist = get_sheet(["member"])
+            else:
+                # Single CSV — try to figure out which sheet it is
+                single = pd.read_csv(uploaded_file)
+                payouts_df = earnings_df = members_hist = None
+                cols_lower = [c.lower() for c in single.columns]
+                if any("payout" in c or "net" in c for c in cols_lower):
+                    payouts_df = single
+                elif any("patron" in c or "charge" in c or "earning" in c for c in cols_lower):
+                    earnings_df = single
+                else:
+                    members_hist = single
+ 
+            # ---- PAYOUTS SHEET ----
+            if payouts_df is not None and not payouts_df.empty:
+                st.markdown("### Payouts")
+                date_col   = find_col(payouts_df, ["date", "month", "payout date", "period"])
+                gross_col  = find_col(payouts_df, ["gross", "gross earnings", "total earnings", "total"])
+                net_col    = find_col(payouts_df, ["net", "net payout", "you receive", "amount paid"])
+                fees_col   = find_col(payouts_df, ["fees", "fee", "processing fees", "platform fee"])
+ 
+                if date_col:
+                    payouts_df[date_col] = pd.to_datetime(payouts_df[date_col], errors="coerce")
+                    payouts_df = payouts_df.dropna(subset=[date_col]).sort_values(date_col)
+                    payouts_df["Month Label"] = payouts_df[date_col].dt.strftime("%B %Y")
+ 
+                    if gross_col or net_col:
+                        col1, col2 = st.columns(2)
+                        if gross_col:
+                            payouts_df[gross_col] = pd.to_numeric(payouts_df[gross_col], errors="coerce")
+                            total_gross = payouts_df[gross_col].sum()
+                            col1.metric("Total Gross Earnings", f"${total_gross:,.2f}")
+                            fig = px.bar(payouts_df, x="Month Label", y=gross_col,
+                                         title="Gross Earnings by Month",
+                                         color_discrete_sequence=["#f96854"],
+                                         labels={gross_col: "Gross ($)", "Month Label": ""})
+                            st.plotly_chart(fig, use_container_width=True, key="payout_gross")
+                        if net_col:
+                            payouts_df[net_col] = pd.to_numeric(payouts_df[net_col], errors="coerce")
+                            total_net = payouts_df[net_col].sum()
+                            col2.metric("Total Net Payouts", f"${total_net:,.2f}")
+                            fig = px.bar(payouts_df, x="Month Label", y=net_col,
+                                         title="Net Payout by Month",
+                                         color_discrete_sequence=["#ffbe0b"],
+                                         labels={net_col: "Net ($)", "Month Label": ""})
+                            st.plotly_chart(fig, use_container_width=True, key="payout_net")
+ 
+                    # Cumulative earnings
+                    if gross_col:
+                        payouts_df["Cumulative"] = payouts_df[gross_col].cumsum()
+                        fig = px.line(payouts_df, x="Month Label", y="Cumulative",
+                                      title="Cumulative Gross Earnings",
+                                      color_discrete_sequence=["#8ecae6"],
+                                      labels={"Cumulative": "Total ($)", "Month Label": ""})
+                        st.plotly_chart(fig, use_container_width=True, key="payout_cumulative")
+ 
+                    st.dataframe(payouts_df.drop(columns=["Month Label"], errors="ignore"),
+                                 use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Couldn't detect a date column in the Payouts sheet.")
+ 
+            # ---- EARNINGS SHEET ----
+            if earnings_df is not None and not earnings_df.empty:
+                st.markdown("### Earnings by Patron")
+                date_col   = find_col(earnings_df, ["charge date", "date", "payment date", "created"])
+                amount_col = find_col(earnings_df, ["amount", "charge amount", "amount (usd)", "total"])
+                status_col = find_col(earnings_df, ["status", "payment status", "charge status"])
+                tier_col   = find_col(earnings_df, ["tier", "tier name", "membership level", "level"])
+                name_col   = find_col(earnings_df, ["patron name", "name", "patron"])
+ 
+                if amount_col:
+                    earnings_df[amount_col] = pd.to_numeric(earnings_df[amount_col], errors="coerce")
+ 
+                if date_col:
+                    earnings_df[date_col] = pd.to_datetime(earnings_df[date_col], errors="coerce")
+                    earnings_df = earnings_df.dropna(subset=[date_col])
+ 
+                    # Filter to paid only if status column exists
+                    paid_df = earnings_df
+                    if status_col:
+                        paid_df = earnings_df[earnings_df[status_col].astype(str).str.lower().isin(["paid", "successful", "success", "completed"])]
+ 
+                    if amount_col and not paid_df.empty:
+                        paid_df = paid_df.copy()
+                        paid_df["Month"] = paid_df[date_col].dt.to_period("M")
+                        paid_df["Month Label"] = paid_df[date_col].dt.strftime("%B %Y")
+ 
+                        monthly_earnings = paid_df.groupby("Month Label")[amount_col].sum().reset_index()
+                        monthly_earnings.columns = ["Month", "Earned ($)"]
+ 
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("Total Earned (all time)", f"${paid_df[amount_col].sum():,.2f}")
+                        col2.metric("Avg per Month", f"${paid_df[amount_col].sum() / max(paid_df['Month'].nunique(), 1):,.2f}")
+                        col3.metric("Transactions", f"{len(paid_df):,}")
+ 
+                        fig = px.bar(monthly_earnings, x="Month", y="Earned ($)",
+                                     title="Monthly Earnings (Paid Charges)",
+                                     color_discrete_sequence=["#f96854"],
+                                     labels={"Month": ""})
+                        st.plotly_chart(fig, use_container_width=True, key="earnings_monthly")
+ 
+                        # By tier if available
+                        if tier_col:
+                            tier_monthly = paid_df.groupby(["Month Label", tier_col])[amount_col].sum().reset_index()
+                            tier_monthly.columns = ["Month", "Tier", "Earned ($)"]
+                            fig = px.bar(tier_monthly, x="Month", y="Earned ($)", color="Tier",
+                                         title="Monthly Earnings by Tier",
+                                         labels={"Month": ""},
+                                         color_discrete_sequence=px.colors.qualitative.Set2)
+                            st.plotly_chart(fig, use_container_width=True, key="earnings_by_tier")
+ 
+                else:
+                    st.warning("Couldn't detect a date column in the Earnings sheet.")
+ 
+            # ---- MEMBERS SHEET ----
+            if members_hist is not None and not members_hist.empty:
+                st.markdown("### Member History")
+                start_col  = find_col(members_hist, ["pledge start", "member since", "start date", "joined", "created"])
+                status_col = find_col(members_hist, ["status", "patron status"])
+                tier_col   = find_col(members_hist, ["tier", "tier name", "membership level", "level"])
+                amount_col = find_col(members_hist, ["amount", "pledge amount", "monthly amount"])
+ 
+                if start_col:
+                    members_hist[start_col] = pd.to_datetime(members_hist[start_col], errors="coerce")
+                    members_hist = members_hist.dropna(subset=[start_col])
+                    members_hist["Month"] = members_hist[start_col].dt.strftime("%B %Y")
+                    members_hist["Year"] = members_hist[start_col].dt.year
+ 
+                    signups_by_month = members_hist.groupby("Month").size().reset_index(name="New Members")
+                    fig = px.bar(signups_by_month, x="Month", y="New Members",
+                                 title="New Members by Month (All Time)",
+                                 color_discrete_sequence=["#f96854"],
+                                 labels={"Month": ""})
+                    st.plotly_chart(fig, use_container_width=True, key="hist_signups")
+ 
+                    if tier_col:
+                        tier_dist = members_hist[tier_col].value_counts().reset_index()
+                        tier_dist.columns = ["Tier", "Members"]
+                        fig = px.pie(tier_dist, names="Tier", values="Members",
+                                     title="Members by Tier",
+                                     color_discrete_sequence=px.colors.qualitative.Set2)
+                        st.plotly_chart(fig, use_container_width=True, key="hist_tier_pie")
+ 
+                col1, col2 = st.columns(2)
+                col1.metric("Total Members in Export", f"{len(members_hist):,}")
+                if status_col:
+                    active_count = len(members_hist[members_hist[status_col].astype(str).str.lower().str.contains("active")])
+                    col2.metric("Active in Export", f"{active_count:,}")
+ 
+                st.dataframe(members_hist, use_container_width=True, hide_index=True)
+ 
+            if payouts_df is None and earnings_df is None and members_hist is None:
+                st.warning("Couldn't identify any sheets. Make sure the file is the Patreon earnings export.")
+ 
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+ 
 # ============================
 # TAB 3: YOUTUBE
 # ============================
@@ -552,3 +745,4 @@ with tab3:
         st.divider()
         st.subheader("All Videos")
         st.dataframe(videos_df[["Title", "Published", "Views", "Likes", "Comments"]], use_container_width=True, hide_index=True)
+ 
