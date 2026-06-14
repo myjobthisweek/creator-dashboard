@@ -247,14 +247,20 @@ for m in members:
         })
 patron_df = pd.DataFrame(patron_records) if patron_records else pd.DataFrame()
 
-def signups_for(year, month, paid_only=True):
+def signups_for(year, month, paid_only=True, through_day=None):
     if patron_df.empty:
         return 0
     df = patron_df[patron_df["Amount"] > 0] if paid_only else patron_df
-    return len(df[(df["Date"].dt.year == year) & (df["Date"].dt.month == month)])
+    mask = (df["Date"].dt.year == year) & (df["Date"].dt.month == month)
+    if through_day is not None:
+        mask &= df["Date"].dt.day <= through_day
+    return len(df[mask])
 
 signups_this_month = signups_for(this_year, this_month)
 signups_last_month = signups_for(last_month_year, last_month)
+# MTD comparison: same day-of-month last month
+signups_last_mtd = signups_for(last_month_year, last_month, through_day=today.day)
+signups_mtd_delta = signups_this_month - signups_last_mtd
 signups_delta = signups_this_month - signups_last_month
 
 def cancellations_for(year, month):
@@ -347,7 +353,7 @@ adsense_delta = adsense_this - adsense_last
 # TIER TABLE HELPER
 # ============================
 
-TIER_ORDER = ["Free", "Lil Bestie", "Big Bestie", "Yuge Bestie"]
+TIER_ORDER = ["Free", "Lil Bestie", "Bestie", "Big Bestie", "Yuge Bestie", "Biggest Bestie", "You Stan Too Hard", "Literally God", "No Tier"]
 
 def make_tier_table(df, period_col, period_values, period_label):
     if df.empty:
@@ -429,17 +435,16 @@ with tab1:
 with tab2:
     st.subheader("Paid Members")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Paid Members", len(paid_active))
     col2.metric("Avg Monthly Sub", f"${avg_monthly_sub:,.2f}")
     col3.metric("Net Growth This Month", f"{net_growth_this_month:+}")
-    col4.metric("Avg Member Tenure", f"{avg_tenure_months} months")
 
     st.divider()
-    st.subheader("Sign Ups")
+    st.subheader("Paid Sign Ups")
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Signups This Month", signups_this_month, delta=f"{signups_delta:+} vs last month", delta_color="normal")
+    col1.metric("Signups This Month", signups_this_month, delta=f"{signups_mtd_delta:+} vs last month (day {today.day})", delta_color="normal")
     col2.metric("Signups Last Month", signups_last_month)
     col3.metric("Cancellations This Month", cancel_this_month, delta=f"{cancel_delta:+} vs last month", delta_color="inverse")
     col4.metric("Cancellations Last Month", cancel_last_month)
@@ -512,128 +517,6 @@ with tab2:
         by_month["Month"] = by_month["Month"].astype(str)
         fig = px.bar(by_month, x="Month", y="New Patrons", title="New Patrons by Month", color_discrete_sequence=["#f96854"])
         st.plotly_chart(fig, use_container_width=True, key="patron_by_month")
-
-    st.divider()
-    st.subheader("📂 Historical Revenue Data")
-    st.caption("Upload your two Patreon CSV exports below. These are not stored anywhere — upload each time you open the dashboard.")
-
-    col_up1, col_up2 = st.columns(2)
-    with col_up1:
-        payouts_file = st.file_uploader("Monthly Payouts CSV", type="csv", key="payouts_upload")
-    with col_up2:
-        earnings_file = st.file_uploader("Monthly Earnings Breakdown CSV", type="csv", key="earnings_upload")
-
-    if payouts_file is not None:
-        try:
-            pay_df = pd.read_csv(payouts_file)
-            pay_df["Month"] = pd.to_datetime(pay_df["Month"], errors="coerce")
-            pay_df = pay_df.dropna(subset=["Month"]).sort_values("Month")
-            pay_df["Month Label"] = pay_df["Month"].dt.strftime("%B %Y")
-
-            for col in ["Earnings", "Amount transferred to your bank"]:
-                if col in pay_df.columns:
-                    pay_df[col] = pd.to_numeric(pay_df[col], errors="coerce")
-
-            st.markdown("#### Monthly Payouts")
-            m1, m2, m3 = st.columns(3)
-            if "Earnings" in pay_df.columns:
-                m1.metric("Total Gross Earnings", f"${pay_df['Earnings'].sum():,.2f}")
-                m2.metric("Avg Monthly Earnings", f"${pay_df['Earnings'].mean():,.2f}")
-            if "Amount transferred to your bank" in pay_df.columns:
-                m3.metric("Total Paid Out to Bank", f"${pay_df['Amount transferred to your bank'].sum():,.2f}")
-
-            if "Earnings" in pay_df.columns and "Amount transferred to your bank" in pay_df.columns:
-                chart_df = pay_df[["Month Label", "Earnings", "Amount transferred to your bank"]].melt(
-                    id_vars="Month Label", var_name="Type", value_name="Amount ($)"
-                )
-                fig = px.bar(chart_df, x="Month Label", y="Amount ($)", color="Type", barmode="group",
-                             title="Gross Earnings vs Bank Payouts by Month",
-                             color_discrete_sequence=["#f96854", "#ffbe0b"],
-                             labels={"Month Label": ""})
-                st.plotly_chart(fig, use_container_width=True, key="pay_gross_vs_net")
-
-                pay_df["Cumulative Earnings"] = pay_df["Earnings"].cumsum()
-                fig = px.line(pay_df, x="Month Label", y="Cumulative Earnings",
-                              title="Cumulative Gross Earnings (All Time)",
-                              color_discrete_sequence=["#8ecae6"],
-                              labels={"Month Label": "", "Cumulative Earnings": "Total ($)"})
-                st.plotly_chart(fig, use_container_width=True, key="pay_cumulative")
-
-            st.dataframe(pay_df.drop(columns=["Month", "Month Label"], errors="ignore"),
-                         use_container_width=True, hide_index=True)
-        except Exception as e:
-            st.error(f"Error reading Payouts file: {e}")
-
-    if earnings_file is not None:
-        try:
-            earn_df = pd.read_csv(earnings_file)
-            earn_df["Month"] = pd.to_datetime(earn_df["Month"], errors="coerce")
-            earn_df = earn_df.dropna(subset=["Month"]).sort_values("Month")
-            earn_df["Month Label"] = earn_df["Month"].dt.strftime("%B %Y")
-
-            numeric_cols = [
-                "Membership charges - web", "Membership charges - iOS app",
-                "Gift charges - web", "Gift charges - iOS app",
-                "Total gross revenue", "Patreon fee", "Total platform fee",
-                "Processing fee", "Currency conversion fee", "iOS App Store fee",
-                "Total payment fee", "Merch items and shipping", "Refunds",
-                "Net earnings - membership - web", "Net earnings - membership - iOS app",
-                "Net earnings - gift - web", "Net earnings - gift - iOS app",
-                "Your total earnings"
-            ]
-            for col in numeric_cols:
-                if col in earn_df.columns:
-                    earn_df[col] = pd.to_numeric(earn_df[col], errors="coerce")
-
-            st.markdown("#### Monthly Earnings Breakdown")
-            m1, m2, m3, m4 = st.columns(4)
-            if "Total gross revenue" in earn_df.columns:
-                m1.metric("Total Gross Revenue", f"${earn_df['Total gross revenue'].sum():,.2f}")
-            if "Your total earnings" in earn_df.columns:
-                m2.metric("Total Net Earnings", f"${earn_df['Your total earnings'].sum():,.2f}")
-            if "Total payment fee" in earn_df.columns:
-                m3.metric("Total Fees Paid", f"${earn_df['Total payment fee'].sum():,.2f}")
-            if "Refunds" in earn_df.columns:
-                m4.metric("Total Refunds", f"${earn_df['Refunds'].sum():,.2f}")
-
-            # Gross vs Net over time
-            if "Total gross revenue" in earn_df.columns and "Your total earnings" in earn_df.columns:
-                fig = px.line(earn_df, x="Month Label", y=["Total gross revenue", "Your total earnings"],
-                              title="Gross Revenue vs Net Earnings by Month",
-                              color_discrete_sequence=["#f96854", "#ffbe0b"],
-                              labels={"Month Label": "", "value": "Amount ($)", "variable": ""})
-                st.plotly_chart(fig, use_container_width=True, key="earn_gross_vs_net")
-
-            # Revenue source breakdown
-            source_cols = [c for c in ["Membership charges - web", "Membership charges - iOS app",
-                                        "Gift charges - web", "Gift charges - iOS app"] if c in earn_df.columns]
-            if source_cols:
-                source_df = earn_df[["Month Label"] + source_cols].melt(
-                    id_vars="Month Label", var_name="Source", value_name="Amount ($)"
-                )
-                fig = px.bar(source_df, x="Month Label", y="Amount ($)", color="Source", barmode="stack",
-                             title="Revenue by Source",
-                             color_discrete_sequence=["#f96854", "#ffbe0b", "#8ecae6", "#b5e48c"],
-                             labels={"Month Label": ""})
-                st.plotly_chart(fig, use_container_width=True, key="earn_by_source")
-
-            # Fee breakdown
-            fee_cols = [c for c in ["Patreon fee", "Processing fee", "iOS App Store fee",
-                                     "Currency conversion fee"] if c in earn_df.columns]
-            if fee_cols:
-                fee_df = earn_df[["Month Label"] + fee_cols].melt(
-                    id_vars="Month Label", var_name="Fee Type", value_name="Amount ($)"
-                )
-                fig = px.bar(fee_df, x="Month Label", y="Amount ($)", color="Fee Type", barmode="stack",
-                             title="Fees by Month",
-                             color_discrete_sequence=["#e63946", "#f4a261", "#2a9d8f", "#e9c46a"],
-                             labels={"Month Label": ""})
-                st.plotly_chart(fig, use_container_width=True, key="earn_fees")
-
-            st.dataframe(earn_df.drop(columns=["Month", "Month Label"], errors="ignore"),
-                         use_container_width=True, hide_index=True)
-        except Exception as e:
-            st.error(f"Error reading Earnings file: {e}")
 
     st.divider()
     export_df = pd.DataFrame([{
