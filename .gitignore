@@ -1,0 +1,6 @@
+.env
+google_creds.json
+client_secret.json
+__pycache__/
+*.pyc
+node_modules/
