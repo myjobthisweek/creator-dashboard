@@ -203,9 +203,10 @@ active = [m for m in members if m["attributes"].get("patron_status") == "active_
 declined = [m for m in members if m["attributes"].get("patron_status") == "declined_patron"]
 former = [m for m in members if m["attributes"].get("patron_status") == "former_patron"]
 followers = [m for m in members if m["attributes"].get("is_follower")]
+paid_active = [m for m in active if m["attributes"].get("currently_entitled_amount_cents", 0) > 0]
 
-annual_active = [m for m in active if m["attributes"].get("pledge_cadence", 1) == 12]
-monthly_active = [m for m in active if m["attributes"].get("pledge_cadence", 1) != 12]
+annual_active = [m for m in paid_active if m["attributes"].get("pledge_cadence", 1) == 12]
+monthly_active = [m for m in paid_active if m["attributes"].get("pledge_cadence", 1) != 12]
 avg_annual_sub = (sum(monthly_amount(m) for m in annual_active) / len(annual_active)) if annual_active else 0
 avg_monthly_sub = (sum(monthly_amount(m) for m in monthly_active) / len(monthly_active)) if monthly_active else 0
 
@@ -246,10 +247,11 @@ for m in members:
         })
 patron_df = pd.DataFrame(patron_records) if patron_records else pd.DataFrame()
 
-def signups_for(year, month):
+def signups_for(year, month, paid_only=True):
     if patron_df.empty:
         return 0
-    return len(patron_df[(patron_df["Date"].dt.year == year) & (patron_df["Date"].dt.month == month)])
+    df = patron_df[patron_df["Amount"] > 0] if paid_only else patron_df
+    return len(df[(df["Date"].dt.year == year) & (df["Date"].dt.month == month)])
 
 signups_this_month = signups_for(this_year, this_month)
 signups_last_month = signups_for(last_month_year, last_month)
@@ -272,9 +274,9 @@ cancel_delta = cancel_this_month - cancel_last_month
 
 net_growth_this_month = signups_this_month - cancel_this_month
 
-# Average member tenure in months (active members only)
+# Average member tenure in months (paid active members only)
 tenure_months_list = []
-for m in active:
+for m in paid_active:
     start = m["attributes"].get("pledge_relationship_start")
     if start:
         start_dt = pd.to_datetime(start[:10])
@@ -345,24 +347,29 @@ adsense_delta = adsense_this - adsense_last
 # TIER TABLE HELPER
 # ============================
 
+TIER_ORDER = ["Free", "Lil Bestie", "Big Bestie", "Yuge Bestie"]
+
 def make_tier_table(df, period_col, period_values, period_label):
     if df.empty:
         return pd.DataFrame()
-    tiers = sorted(df["Tier"].unique())
+    existing_tiers = df["Tier"].unique().tolist()
+    ordered_tiers = [t for t in TIER_ORDER if t in existing_tiers]
+    remaining = [t for t in existing_tiers if t not in TIER_ORDER]
+    tiers = ordered_tiers + remaining
     rows = []
     for period in period_values:
         row = {period_label: str(period)}
         period_data = df[df[period_col] == period]
         for tier in tiers:
             row[tier] = len(period_data[period_data["Tier"] == tier])
-        row["Total Members"] = len(period_data)
-        row["Total Revenue ($)"] = round(period_data["Amount"].sum(), 2)
+        row["Total"] = len(period_data)
+        row["Revenue"] = round(period_data["Amount"].sum(), 2)
         rows.append(row)
     total_row = {period_label: "TOTAL"}
     for tier in tiers:
         total_row[tier] = len(df[df["Tier"] == tier])
-    total_row["Total Members"] = len(df)
-    total_row["Total Revenue ($)"] = round(df["Amount"].sum(), 2)
+    total_row["Total"] = len(df)
+    total_row["Revenue"] = round(df["Amount"].sum(), 2)
     rows.append(total_row)
     return pd.DataFrame(rows)
 
@@ -420,10 +427,10 @@ with tab1:
 # ============================
 
 with tab2:
-    st.subheader("Members")
+    st.subheader("Paid Members")
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Paid Members", len(active))
+    col1.metric("Paid Members", len(paid_active))
     col2.metric("Avg Monthly Sub", f"${avg_monthly_sub:,.2f}")
     col3.metric("Net Growth This Month", f"{net_growth_this_month:+}")
     col4.metric("Avg Member Tenure", f"{avg_tenure_months} months")
@@ -442,16 +449,16 @@ with tab2:
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Monthly Revenue", f"${math.ceil(monthly_revenue):,}")
-    col2.metric("New Sub Revenue This Month", f"${math.ceil(new_rev_this_month):,}")
-    col3.metric("New Sub Revenue This Week", f"${math.ceil(new_rev_this_week):,}")
+    col2.metric("New Sub Revenue This Week", f"${math.ceil(new_rev_this_week):,}")
+    col3.metric("New Sub Revenue This Month", f"${math.ceil(new_rev_this_month):,}")
 
     if not patron_df.empty:
         st.divider()
 
-        highlight = ["Total Members", "Total Revenue ($)"]
-        col_tables, _ = st.columns([1, 1])
+        highlight = ["Total", "Revenue"]
 
-        with col_tables:
+        col_weekly, _ = st.columns([1, 1])
+        with col_weekly:
             st.subheader("New Members This Week")
             last_7 = [today.date() - timedelta(days=i) for i in range(6, -1, -1)]
             patron_df["DateOnly"] = patron_df["Date"].dt.date
@@ -467,11 +474,13 @@ with tab2:
                     if col.name in highlight:
                         return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
                     return ["text-align: center"] * len(col)
-                styled = weekly_table.style.apply(_style_weekly, axis=0).format({"Total Revenue ($)": "${:,.2f}"})
+                styled = weekly_table.style.set_properties(**{"text-align": "center"}).apply(_style_weekly, axis=0).format({"Revenue": "${:,.2f}"})
                 st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
             else:
                 st.info("No new members in the last 7 days.")
 
+        col_monthly, _ = st.columns([3, 1])
+        with col_monthly:
             st.subheader("New Members by Month (This Year)")
             patron_df["Month"] = patron_df["Date"].dt.to_period("M")
             months_this_year = [
@@ -490,7 +499,7 @@ with tab2:
                     if col.name in highlight:
                         return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
                     return ["text-align: center"] * len(col)
-                styled = monthly_table.style.apply(_style_monthly, axis=0).format({"Total Revenue ($)": "${:,.2f}"})
+                styled = monthly_table.style.set_properties(**{"text-align": "center"}).apply(_style_monthly, axis=0).format({"Revenue": "${:,.2f}"})
                 st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
             else:
                 st.info("No member data for this year yet.")
