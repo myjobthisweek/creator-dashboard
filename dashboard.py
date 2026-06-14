@@ -32,7 +32,7 @@ def fetch_patreon_data():
 
     while True:
         params = {
-            "fields[member]": "full_name,patron_status,currently_entitled_amount_cents,lifetime_support_cents,last_charge_status,last_charge_date,pledge_relationship_start,will_pay_amount_cents,is_follower,pledge_cadence",
+            "fields[member]": "full_name,patron_status,currently_entitled_amount_cents,lifetime_support_cents,campaign_lifetime_support_cents,last_charge_status,last_charge_date,pledge_relationship_start,will_pay_amount_cents,is_follower,pledge_cadence",
             "include": "currently_entitled_tiers",
             "fields[tier]": "title,amount_cents",
             "page[count]": 1000
@@ -186,7 +186,7 @@ def monthly_amount(m):
     return amount
 
 monthly_revenue = sum(monthly_amount(m) for m in active) / 100
-lifetime_revenue = sum(m["attributes"].get("lifetime_support_cents", 0) for m in members) / 100
+lifetime_revenue = sum(m["attributes"].get("campaign_lifetime_support_cents", 0) for m in members) / 100
 next_month_rev = sum(m["attributes"].get("will_pay_amount_cents", 0) for m in active) / 100
  
 today = datetime.today()
