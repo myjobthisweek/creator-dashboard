@@ -192,6 +192,13 @@ for m in members:
     tier_ids = [t["id"] for t in m.get("relationships", {}).get("currently_entitled_tiers", {}).get("data", [])]
     m["tier"] = tier_map.get(tier_ids[0], "No Tier") if tier_ids else "No Tier"
 
+def monthly_amount(m):
+    amount = m["attributes"].get("currently_entitled_amount_cents", 0)
+    cadence = m["attributes"].get("pledge_cadence", 1)
+    if cadence == 12:
+        return amount / 12 / 100
+    return amount / 100
+
 active = [m for m in members if m["attributes"].get("patron_status") == "active_patron"]
 declined = [m for m in members if m["attributes"].get("patron_status") == "declined_patron"]
 former = [m for m in members if m["attributes"].get("patron_status") == "former_patron"]
@@ -201,13 +208,6 @@ annual_active = [m for m in active if m["attributes"].get("pledge_cadence", 1) =
 monthly_active = [m for m in active if m["attributes"].get("pledge_cadence", 1) != 12]
 avg_annual_sub = (sum(monthly_amount(m) for m in annual_active) / len(annual_active)) if annual_active else 0
 avg_monthly_sub = (sum(monthly_amount(m) for m in monthly_active) / len(monthly_active)) if monthly_active else 0
-
-def monthly_amount(m):
-    amount = m["attributes"].get("currently_entitled_amount_cents", 0)
-    cadence = m["attributes"].get("pledge_cadence", 1)
-    if cadence == 12:
-        return amount / 12 / 100
-    return amount / 100
 
 monthly_revenue = sum(monthly_amount(m) for m in active)
 lifetime_revenue = sum(m["attributes"].get("campaign_lifetime_support_cents", 0) for m in members) / 100
