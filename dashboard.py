@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 load_dotenv()
  
 st.set_page_config(page_title="Caelan Conrad", page_icon="🎬", layout="wide")
-st.title("Caelan Conrad")
-st.caption("Bash Back Inc.")
+st.title("Dashboard")
+st.caption("")
  
 tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🎁 Patreon", "📺 YouTube"])
  
