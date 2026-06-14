@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import os
+import tempfile
 import pandas as pd
 import plotly.express as px
 from dotenv import load_dotenv
@@ -23,18 +24,31 @@ tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🎁 Patreon", "📺 YouTube"])
 @st.cache_data(ttl=300)
 def fetch_patreon_data():
     token = os.getenv("PATREON_ACCESS_TOKEN")
-    campaign_id = "16231121"
+    campaign_id = "3563344"
     headers = {"Authorization": f"Bearer {token}"}
-    members_resp = requests.get(
-        f"https://www.patreon.com/api/oauth2/v2/campaigns/{campaign_id}/members",
-        headers=headers,
-        params={
-            "fields[member]": "full_name,patron_status,currently_entitled_amount_cents,lifetime_support_cents,last_charge_status,last_charge_date,pledge_relationship_start,will_pay_amount_cents,is_follower",
+    all_members = []
+    all_included = []
+    cursor = None
+    while True:
+        params = {
+            "fields[member]": "full_name,patron_status,currently_entitled_amount_cents,lifetime_support_cents,campaign_lifetime_support_cents,last_charge_status,last_charge_date,pledge_relationship_start,will_pay_amount_cents,is_follower,pledge_cadence",
             "include": "currently_entitled_tiers",
-            "fields[tier]": "title,amount_cents"
+            "fields[tier]": "title,amount_cents",
+            "page[count]": 1000
         }
-    ).json()
-    return members_resp
+        if cursor:
+            params["page[cursor]"] = cursor
+        resp = requests.get(
+            f"https://www.patreon.com/api/oauth2/v2/campaigns/{campaign_id}/members",
+            headers=headers, params=params
+        ).json()
+        all_members.extend(resp.get("data", []))
+        all_included.extend(resp.get("included", []))
+        next_cursor = resp.get("meta", {}).get("pagination", {}).get("cursors", {}).get("next")
+        if not next_cursor:
+            break
+        cursor = next_cursor
+    return {"data": all_members, "included": all_included}
  
 @st.cache_data(ttl=300)
 def fetch_youtube_data():
@@ -68,13 +82,27 @@ def fetch_youtube_data():
         video_stats.extend(stats_resp.get("items", []))
     return channel, video_stats
  
+def get_google_creds():
+    """Load Google credentials from Streamlit secrets (cloud) or local file."""
+    if "GOOGLE_CREDS" in st.secrets:
+        creds_data = st.secrets["GOOGLE_CREDS"]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(creds_data)
+            tmp_path = f.name
+        return Credentials.from_authorized_user_file(tmp_path)
+    elif os.path.exists("google_creds.json"):
+        return Credentials.from_authorized_user_file("google_creds.json")
+    else:
+        return None
+ 
 @st.cache_data(ttl=300)
 def fetch_youtube_analytics():
     try:
-        creds = Credentials.from_authorized_user_file("google_creds.json")
+        creds = get_google_creds()
+        if creds is None:
+            return None
         youtube_analytics = build("youtubeAnalytics", "v2", credentials=creds)
         today = datetime.today()
-        # Go back 13 months for 12-month averages
         start_date = (today.replace(day=1) - timedelta(days=365)).strftime("%Y-%m-%d")
         end_date = today.strftime("%Y-%m-%d")
         response = youtube_analytics.reports().query(
@@ -97,7 +125,9 @@ def fetch_youtube_analytics():
 @st.cache_data(ttl=300)
 def fetch_adsense_monthly():
     try:
-        creds = Credentials.from_authorized_user_file("google_creds.json")
+        creds = get_google_creds()
+        if creds is None:
+            return {}
         service = build("adsense", "v2", credentials=creds)
         accounts = service.accounts().list().execute()
         if not accounts.get("accounts"):
@@ -148,8 +178,15 @@ declined = [m for m in members if m["attributes"].get("patron_status") == "decli
 former = [m for m in members if m["attributes"].get("patron_status") == "former_patron"]
 followers = [m for m in members if m["attributes"].get("is_follower")]
  
-monthly_revenue = sum(m["attributes"].get("currently_entitled_amount_cents", 0) for m in active) / 100
-lifetime_revenue = sum(m["attributes"].get("lifetime_support_cents", 0) for m in members) / 100
+def monthly_amount(m):
+    amount = m["attributes"].get("currently_entitled_amount_cents", 0)
+    cadence = m["attributes"].get("pledge_cadence", 1)
+    if cadence == 12:
+        return amount / 12 / 100
+    return amount / 100
+ 
+monthly_revenue = sum(monthly_amount(m) for m in active)
+lifetime_revenue = sum(m["attributes"].get("campaign_lifetime_support_cents", 0) for m in members) / 100
 next_month_rev = sum(m["attributes"].get("will_pay_amount_cents", 0) for m in active) / 100
  
 today = datetime.today()
@@ -166,7 +203,7 @@ def patreon_revenue_for(year, month):
         if lc and ls == "Paid":
             d = pd.to_datetime(lc[:10])
             if d.year == year and d.month == month:
-                total += m["attributes"].get("currently_entitled_amount_cents", 0) / 100
+                total += monthly_amount(m)
     return total
  
 patreon_this_month = patreon_revenue_for(this_year, this_month)
@@ -185,7 +222,6 @@ for m in members:
         })
 patron_df = pd.DataFrame(patron_records) if patron_records else pd.DataFrame()
  
-# Signups this month vs last month
 def signups_for(year, month):
     if patron_df.empty:
         return 0
@@ -195,7 +231,6 @@ signups_this_month = signups_for(this_year, this_month)
 signups_last_month = signups_for(last_month_year, last_month)
 signups_delta = signups_this_month - signups_last_month
  
-# Cancellations: former/declined members with last_charge_date in given month
 def cancellations_for(year, month):
     total = 0
     for m in members:
@@ -233,7 +268,6 @@ for v in video_stats:
     })
 videos_df = pd.DataFrame(videos_data).sort_values("Views", ascending=False) if videos_data else pd.DataFrame()
  
-# YouTube monthly aggregation
 yt_views_this = yt_views_last = yt_views_avg = 0
 yt_subs_this = yt_subs_last = yt_subs_avg = 0
  
@@ -253,7 +287,6 @@ if analytics_df is not None and not analytics_df.empty:
     yt_subs_last = int(monthly_agg.loc[last_period, "Net Subscribers"]) if last_period in monthly_agg.index else 0
     yt_subs_avg = int(monthly_agg["Net Subscribers"].mean()) if not monthly_agg.empty else 0
  
-# AdSense this month / last month / 12-month avg
 this_month_key = f"{this_year}-{this_month:02d}"
 last_month_key = f"{last_month_year}-{last_month:02d}"
 adsense_this = adsense_monthly.get(this_month_key, 0.0)
@@ -293,7 +326,6 @@ def make_tier_table(df, period_col, period_values, period_label):
 with tab1:
     st.subheader("Dashboard")
  
-    # AdSense row
     st.markdown("**AdSense Revenue**")
     col1, col2, col3 = st.columns(3)
     col1.metric("This Month", f"${adsense_this:.2f}", delta=f"${adsense_delta:+.2f} vs last month", delta_color="normal")
@@ -302,7 +334,6 @@ with tab1:
  
     st.divider()
  
-    # Patreon row
     st.markdown("**Patreon Revenue**")
     col1, col2, col3 = st.columns(3)
     col1.metric("This Month", f"${patreon_this_month:.2f}", delta=f"${patreon_delta:+.2f} vs last month", delta_color="normal")
@@ -311,7 +342,6 @@ with tab1:
  
     st.divider()
  
-    # YouTube Views row
     st.markdown("**YouTube Views**")
     col1, col2, col3 = st.columns(3)
     col1.metric("This Month", f"{yt_views_this:,}", delta=f"{yt_views_this - yt_views_last:+,} vs last month", delta_color="normal")
@@ -320,7 +350,6 @@ with tab1:
  
     st.divider()
  
-    # YouTube Subscribers row
     st.markdown("**YouTube Subscribers**")
     col1, col2, col3 = st.columns(3)
     col1.metric("This Month (Net)", f"{yt_subs_this:+,}", delta=f"{yt_subs_this - yt_subs_last:+,} vs last month", delta_color="normal")
@@ -346,7 +375,6 @@ with tab1:
 with tab2:
     st.subheader("Patreon Overview")
  
-    # Signups & cancellations at top
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Signups This Month", signups_this_month, delta=f"{signups_delta:+} vs last month", delta_color="normal")
     col2.metric("Signups Last Month", signups_last_month)
@@ -458,8 +486,8 @@ with tab2:
         "Name": m["attributes"].get("full_name"),
         "Tier": m.get("tier", "No Tier"),
         "Status": m["attributes"].get("patron_status"),
-        "Monthly ($)": m["attributes"].get("currently_entitled_amount_cents", 0) / 100,
-        "Lifetime ($)": m["attributes"].get("lifetime_support_cents", 0) / 100,
+        "Monthly ($)": monthly_amount(m),
+        "Lifetime ($)": m["attributes"].get("campaign_lifetime_support_cents", 0) / 100,
         "Last Charge": m["attributes"].get("last_charge_date", "")[:10] if m["attributes"].get("last_charge_date") else "",
         "Member Since": m["attributes"].get("pledge_relationship_start", "")[:10] if m["attributes"].get("pledge_relationship_start") else "",
     } for m in members])
@@ -523,7 +551,4 @@ with tab3:
  
         st.divider()
         st.subheader("All Videos")
-        st.dataframe(videos_df, use_container_width=True, hide_index=True)
-        st.download_button("⬇️ Export YouTube Data to CSV", videos_df.to_csv(index=False), "youtube_videos.csv", "text/csv")
-    else:
-        st.info("No videos found on this channel yet.")
+        st.dataframe(videos_df[["Title", "Published", "Views", "Likes", "Comments"]], use_container_width=True, hide_index=True)
