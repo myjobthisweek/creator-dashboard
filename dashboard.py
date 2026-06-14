@@ -71,7 +71,12 @@ def fetch_youtube_data():
 @st.cache_data(ttl=300)
 def fetch_youtube_analytics():
     try:
-        creds = Credentials.from_authorized_user_file("google_creds.json")
+        import json, tempfile
+        creds_data = st.secrets["GOOGLE_CREDS"]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(creds_data)
+            tmp_path = f.name
+        creds = Credentials.from_authorized_user_file(tmp_path)
         youtube_analytics = build("youtubeAnalytics", "v2", credentials=creds)
         today = datetime.today()
         # Go back 13 months for 12-month averages
@@ -97,7 +102,12 @@ def fetch_youtube_analytics():
 @st.cache_data(ttl=300)
 def fetch_adsense_monthly():
     try:
-        creds = Credentials.from_authorized_user_file("google_creds.json")
+        import json, tempfile
+        creds_data = st.secrets["GOOGLE_CREDS"]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write(creds_data)
+            tmp_path = f.name
+        creds = Credentials.from_authorized_user_file(tmp_path)
         service = build("adsense", "v2", credentials=creds)
         accounts = service.accounts().list().execute()
         if not accounts.get("accounts"):
