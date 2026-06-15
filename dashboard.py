@@ -290,7 +290,7 @@ for m in paid_active:
         tenure_months_list.append(months)
 avg_tenure_months = round(sum(tenure_months_list) / len(tenure_months_list)) if tenure_months_list else 0
 
-# Revenue from new subscribers
+# Revenue from new subscribers (tab2: rolling 7 days)
 new_rev_this_month = 0
 new_rev_this_week = 0
 if not patron_df.empty:
@@ -300,6 +300,18 @@ if not patron_df.empty:
     last_7_dates = set(today.date() - timedelta(days=i) for i in range(7))
     week_new = active_df[active_df["Date"].dt.date.isin(last_7_dates)]
     new_rev_this_week = week_new["Amount"].sum()
+
+# New subs this calendar week (Sunday–Saturday)
+days_since_sunday = (today.weekday() + 1) % 7
+week_sunday = today.date() - timedelta(days=days_since_sunday)
+week_saturday = week_sunday + timedelta(days=6)
+dashboard_week_subs = 0
+dashboard_week_rev = 0
+if not patron_df.empty:
+    paid_df = patron_df[patron_df["Amount"] > 0]
+    cal_week = paid_df[(paid_df["Date"].dt.date >= week_sunday) & (paid_df["Date"].dt.date <= week_saturday)]
+    dashboard_week_subs = len(cal_week)
+    dashboard_week_rev = cal_week["Amount"].sum()
 
 # ============================
 # PROCESS YOUTUBE
@@ -384,9 +396,8 @@ def make_tier_table(df, period_col, period_values, period_label):
 # ============================
 
 with tab1:
-    st.subheader("Dashboard")
+    st.subheader("Adsense")
 
-    st.markdown("**AdSense Revenue**")
     col1, col2, col3 = st.columns(3)
     col1.metric("This Month", f"${adsense_this:.2f}", delta=f"${adsense_delta:+.2f} vs last month", delta_color="normal")
     col2.metric("Last Month", f"${adsense_last:.2f}")
@@ -394,11 +405,11 @@ with tab1:
 
     st.divider()
 
-    st.markdown("**Patreon Revenue**")
+    st.markdown("**Patreon**")
     col1, col2, col3 = st.columns(3)
-    col1.metric("This Month", f"${patreon_this_month:.2f}", delta=f"${patreon_delta:+.2f} vs last month", delta_color="normal")
-    col2.metric("Last Month", f"${patreon_last_month:.2f}")
-    col3.metric("Current MRR", f"${monthly_revenue:.2f}")
+    col1.metric("Monthly Revenue", f"${math.ceil(monthly_revenue):,}")
+    col2.metric("New Subs This Week", dashboard_week_subs)
+    col3.metric("New Sub Revenue This Week", f"${dashboard_week_rev:.2f}")
 
     st.divider()
 
