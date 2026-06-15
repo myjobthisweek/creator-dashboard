@@ -405,7 +405,7 @@ with tab1:
 
     st.divider()
 
-    st.markdown("**Patreon**")
+    st.subheader("Patreon")
     col1, col2, col3 = st.columns(3)
     col1.metric("Monthly Revenue", f"${math.ceil(monthly_revenue):,}")
     col2.metric("New Subs This Week", dashboard_week_subs)
@@ -413,7 +413,7 @@ with tab1:
 
     st.divider()
 
-    st.markdown("**YouTube Views**")
+    st.subheader("Views")
     col1, col2, col3 = st.columns(3)
     col1.metric("This Month", f"{yt_views_this:,}", delta=f"{yt_views_this - yt_views_last:+,} vs last month", delta_color="normal")
     col2.metric("Last Month", f"{yt_views_last:,}")
@@ -421,23 +421,11 @@ with tab1:
 
     st.divider()
 
-    st.markdown("**YouTube Subscribers**")
+    st.subheader("Subscribers")
     col1, col2, col3 = st.columns(3)
     col1.metric("This Month (Net)", f"{yt_subs_this:+,}", delta=f"{yt_subs_this - yt_subs_last:+,} vs last month", delta_color="normal")
     col2.metric("Last Month (Net)", f"{yt_subs_last:+,}")
     col3.metric("12-Month Avg (Net)", f"{yt_subs_avg:+,}")
-
-    if analytics_df is not None and not analytics_df.empty:
-        st.divider()
-        st.subheader("Year-to-Date")
-        ytd_df = analytics_df[analytics_df["Date"].dt.year == this_year]
-        col1, col2 = st.columns(2)
-        with col1:
-            fig = px.line(ytd_df, x="Date", y="Views", title="Daily Views (YTD)", color_discrete_sequence=["#f96854"])
-            st.plotly_chart(fig, use_container_width=True, key="overview_views")
-        with col2:
-            fig = px.bar(ytd_df, x="Date", y="Net Subscribers", title="Daily Net Subscribers (YTD)", color_discrete_sequence=["#ffbe0b"])
-            st.plotly_chart(fig, use_container_width=True, key="overview_subs")
 
 # ============================
 # TAB 2: PATREON
