@@ -453,7 +453,7 @@ with tab2:
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Monthly Revenue", f"${math.ceil(monthly_revenue):,}")
-    col2.metric("New Sub Revenue This Week", f"${math.ceil(new_rev_this_week):,}")
+    col2.metric("New Sub Revenue Past 7 Days", f"${math.ceil(new_rev_this_week):,}")
     col3.metric("New Sub Revenue This Month", f"${math.ceil(new_rev_this_month):,}")
 
     if not patron_df.empty:
@@ -485,7 +485,7 @@ with tab2:
 
         col_monthly, _ = st.columns([3, 1])
         with col_monthly:
-            st.subheader("New Members by Month (This Year)")
+            st.subheader("New Members by Month")
             patron_df["Month"] = patron_df["Date"].dt.to_period("M")
             months_this_year = [
                 pd.Period(f"{this_year}-{m:02d}", freq="M")
