@@ -244,7 +244,8 @@ for m in members:
             "Date": pd.to_datetime(start[:10]),
             "Tier": m.get("tier", "No Tier"),
             "Amount": monthly_amount(m),
-            "Status": m["attributes"].get("patron_status")
+            "Status": m["attributes"].get("patron_status"),
+            "Cadence": m["attributes"].get("pledge_cadence", 1)
         })
 patron_df = pd.DataFrame(patron_records) if patron_records else pd.DataFrame()
 
@@ -383,12 +384,16 @@ def make_tier_table(df, period_col, period_values, period_label):
             row[tier] = len(period_data[period_data["Tier"] == tier])
         row["Total"] = len(period_data)
         row["Revenue"] = round(period_data["Amount"].sum(), 2)
+        row["Monthly Sub Rev"] = round(period_data[period_data["Cadence"] != 12]["Amount"].sum(), 2)
+        row["Annual Sub Rev"] = round(period_data[period_data["Cadence"] == 12]["Amount"].sum(), 2)
         rows.append(row)
     total_row = {period_label: "TOTAL"}
     for tier in tiers:
         total_row[tier] = len(df[df["Tier"] == tier])
     total_row["Total"] = len(df)
     total_row["Revenue"] = round(df["Amount"].sum(), 2)
+    total_row["Monthly Sub Rev"] = round(df[df["Cadence"] != 12]["Amount"].sum(), 2)
+    total_row["Annual Sub Rev"] = round(df[df["Cadence"] == 12]["Amount"].sum(), 2)
     rows.append(total_row)
     return pd.DataFrame(rows)
 
@@ -479,7 +484,7 @@ with tab2:
                     if col.name in highlight:
                         return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
                     return ["text-align: center"] * len(col)
-                styled = weekly_table.style.set_properties(**{"text-align": "center"}).apply(_style_weekly, axis=0).format({"Revenue": "${:,.2f}"})
+                styled = weekly_table.style.set_properties(**{"text-align": "center"}).apply(_style_weekly, axis=0).format({"Revenue": "${:,.2f}", "Monthly Sub Rev": "${:,.2f}", "Annual Sub Rev": "${:,.2f}"})
                 st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
             else:
                 st.info("No new members in the last 7 days.")
@@ -504,7 +509,7 @@ with tab2:
                     if col.name in highlight:
                         return ["background-color: #b0b0b0; color: black; font-weight: bold; text-align: center"] * len(col)
                     return ["text-align: center"] * len(col)
-                styled = monthly_table.style.set_properties(**{"text-align": "center"}).apply(_style_monthly, axis=0).format({"Revenue": "${:,.2f}"})
+                styled = monthly_table.style.set_properties(**{"text-align": "center"}).apply(_style_monthly, axis=0).format({"Revenue": "${:,.2f}", "Monthly Sub Rev": "${:,.2f}", "Annual Sub Rev": "${:,.2f}"})
                 st.dataframe(styled, use_container_width=True, hide_index=True, column_config=col_config)
             else:
                 st.info("No member data for this year yet.")
