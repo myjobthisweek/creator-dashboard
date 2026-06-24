@@ -194,11 +194,16 @@ for m in members:
     m["tier"] = tier_map.get(tier_ids[0], "No Tier") if tier_ids else "No Tier"
 
 def monthly_amount(m):
+    """Monthly-equivalent amount — used for MRR and averages."""
     amount = m["attributes"].get("currently_entitled_amount_cents", 0)
     cadence = m["attributes"].get("pledge_cadence", 1)
     if cadence == 12:
         return amount / 12 / 100
     return amount / 100
+
+def charge_amount(m):
+    """Actual cash charged — full price for annuals, not divided by 12."""
+    return m["attributes"].get("currently_entitled_amount_cents", 0) / 100
 
 active = [m for m in members if m["attributes"].get("patron_status") == "active_patron"]
 declined = [m for m in members if m["attributes"].get("patron_status") == "declined_patron"]
@@ -243,7 +248,7 @@ for m in members:
         patron_records.append({
             "Date": pd.to_datetime(start[:10]),
             "Tier": m.get("tier", "No Tier"),
-            "Amount": monthly_amount(m),
+            "Amount": charge_amount(m),
             "Status": m["attributes"].get("patron_status"),
             "Cadence": m["attributes"].get("pledge_cadence", 1)
         })
