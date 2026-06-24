@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 load_dotenv()
 
 st.set_page_config(page_title="Dashboard", page_icon="🎬", layout="wide")
@@ -214,7 +215,7 @@ monthly_revenue = sum(monthly_amount(m) for m in active)
 lifetime_revenue = sum(m["attributes"].get("campaign_lifetime_support_cents", 0) for m in members) / 100
 next_month_rev = sum(m["attributes"].get("will_pay_amount_cents", 0) for m in active) / 100
 
-today = datetime.today()
+today = datetime.now(ZoneInfo("America/New_York"))
 this_month = today.month
 this_year = today.year
 last_month = (today.replace(day=1) - timedelta(days=1)).month
@@ -517,17 +518,6 @@ with tab2:
         fig = px.bar(by_month, x="Month", y="New Patrons", title="New Patrons by Month", color_discrete_sequence=["#f96854"])
         st.plotly_chart(fig, use_container_width=True, key="patron_by_month")
 
-    st.divider()
-    export_df = pd.DataFrame([{
-        "Name": m["attributes"].get("full_name"),
-        "Tier": m.get("tier", "No Tier"),
-        "Status": m["attributes"].get("patron_status"),
-        "Monthly ($)": monthly_amount(m),
-        "Lifetime ($)": m["attributes"].get("campaign_lifetime_support_cents", 0) / 100,
-        "Last Charge": m["attributes"].get("last_charge_date", "")[:10] if m["attributes"].get("last_charge_date") else "",
-        "Member Since": m["attributes"].get("pledge_relationship_start", "")[:10] if m["attributes"].get("pledge_relationship_start") else "",
-    } for m in members])
-    st.download_button("⬇️ Export Patreon Data to CSV", export_df.to_csv(index=False), "patreon_members.csv", "text/csv")
 
 
 # ============================
